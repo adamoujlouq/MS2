@@ -1,100 +1,102 @@
 import argparse
-
 import numpy as np
 from torchinfo import summary
 
 from src.data import load_data
+from src.utils import normalize_fn
 from src.methods.deep_network import MLP, CNN, Trainer
-from src.utils import normalize_fn, append_bias_term, accuracy_fn, macrof1_fn, get_n_classes
+from src.utils import accuracy_fn, macrof1_fn, get_n_classes
 
 
 def main(args):
-    """
-    The main function of the script. Do not hesitate to play with it
-    and add your own code, visualization, prints, etc!
+    # 1. Load data  ────────────────────────────────────────────────────────
+    xtrain, xtest, ytrain, y_test = load_data()          # (N,28,28,3) uint8
+    xtrain = xtrain.reshape(xtrain.shape[0], -1)         # (N,2352)
+    xtest  = xtest.reshape( xtest.shape[0],  -1)
 
-    Arguments:
-        args (Namespace): arguments that were parsed from the command line (see at the end
-                          of this file). Their value can be accessed as "args.argument".
-    """
-    ## 1. First, we load our data and flatten the images into vectors
-    xtrain, xtest, ytrain, y_test = load_data()
-    xtrain = xtrain.reshape(xtrain.shape[0], -1)
-    xtest = xtest.reshape(xtest.shape[0], -1)
-
-    ## 2. Then we must prepare it. This is were you can create a validation set,
-    #  normalize, add bias, etc.
-
-    # Make a validation set
+    # 2-a. Validation split  ──────────────────────────────────────────────
     if not args.test:
-    ### WRITE YOUR CODE HERE
+        # === WRITE YOUR CODE HERE (split 90 / 10) =======================
+        rng = np.random.default_rng(42)
+        idx = rng.permutation(len(xtrain))
+        split = int(0.9 * len(idx))
+        tr_idx, val_idx = idx[:split], idx[split:]
 
+        x_val, y_val   = xtrain[val_idx], ytrain[val_idx]
+        xtrain, ytrain = xtrain[tr_idx], ytrain[tr_idx]
+        # ================================================================
+    else:                              # test mode → val = test (pour métriques)
+        x_val, y_val = xtest, y_test
 
-    ### WRITE YOUR CODE HERE to do any other data processing
+    # 2-b. Normalisation  ────────────────────────────────────────────────
+    # === WRITE YOUR CODE HERE (normalise features vectorisés) ============
+    xtrain = xtrain.astype(np.float32) / 255.0
+    x_val  = x_val.astype(np.float32)  / 255.0
 
+    mu    = xtrain.mean(axis=0, keepdims=True)
+    sigma = xtrain.std(axis=0, keepdims=True) + 1e-8
 
-    ## 3. Initialize the method you want to use.
+    xtrain = normalize_fn(xtrain, mu, sigma)
+    x_val  = normalize_fn(x_val, mu, sigma)
 
-    # Neural Networks (MS2)
+    # on garde aussi une version (N,28,28,3) pour la CNN
+    xtrain_img = xtrain.reshape(-1, 28, 28, 3)
+    x_val_img  = x_val.reshape( -1, 28, 28, 3)
+    # =====================================================================
 
-    # Prepare the model (and data) for Pytorch
-    # Note: you might need to reshape the data depending on the network you use!
+    # 3. Initialise le modèle  ────────────────────────────────────────────
     n_classes = get_n_classes(ytrain)
     if args.nn_type == "mlp":
-        model = ... ### WRITE YOUR CODE HERE
+        # === WRITE YOUR CODE HERE (MLP instanciation) ===================
+        model = MLP(input_size=2352, n_classes=n_classes, hidden_dim=256)
+        # =================================================================
+    elif args.nn_type == "cnn":
+        # === WRITE YOUR CODE HERE (CNN: remet en CHW) ===================
+        xtrain = np.transpose(xtrain_img, (0, 3, 1, 2))
+        x_val  = np.transpose(x_val_img,  (0, 3, 1, 2))
+        model  = CNN(input_channels=3, n_classes=n_classes)
+        # =================================================================
+    else:
+        raise ValueError("nn_type must be 'mlp' or 'cnn'")
 
     summary(model)
 
-    # Trainer object
-    method_obj = Trainer(model, lr=args.lr, epochs=args.max_iters, batch_size=args.nn_batch_size)
+    # 4. Trainer & apprentissage  ────────────────────────────────────────
+    trainer = Trainer(model, lr=args.lr,
+                      epochs=args.max_iters,
+                      batch_size=args.nn_batch_size)
+
+    preds_train = trainer.fit(xtrain, ytrain)
+    preds_val   = trainer.predict(x_val)
+
+    # 5. Métriques  ───────────────────────────────────────────────────────
+    acc_tr  = accuracy_fn(preds_train, ytrain)
+    f1_tr   = macrof1_fn(preds_train, ytrain)
+
+    acc_val = accuracy_fn(preds_val, y_val)
+    f1_val  = macrof1_fn(preds_val, y_val)
+
+    print(f"\nTrain : accuracy = {acc_tr:.3f}% | F1 = {f1_tr:.6f}")
+    tag = "Test" if args.test else "Validation"
+    print(f"{tag} : accuracy = {acc_val:.3f}% | F1 = {f1_val:.6f}")
+
+    # (option) sauvegarde prédictions test
+    if args.test:
+        np.save("dermamnist_test_preds.npy", preds_val)
+        print("Test predictions saved to dermamnist_test_preds.npy")
 
 
-    ## 4. Train and evaluate the method
-
-    # Fit (:=train) the method on the training data
-    preds_train = method_obj.fit(xtrain, ytrain)
-
-    # Predict on unseen data
-    preds = method_obj.predict(xtest)
-
-    ## Report results: performance on train and valid/test sets
-    acc = accuracy_fn(preds_train, ytrain)
-    macrof1 = macrof1_fn(preds_train, ytrain)
-    print(f"\nTrain set: accuracy = {acc:.3f}% - F1-score = {macrof1:.6f}")
-
-
-    ## As there are no test dataset labels, check your model accuracy on validation dataset.
-    # You can check your model performance on test set by submitting your test set predictions on the AIcrowd competition.
-    acc = accuracy_fn(preds, xtest)
-    macrof1 = macrof1_fn(preds, xtest)
-    print(f"Validation set:  accuracy = {acc:.3f}% - F1-score = {macrof1:.6f}")
-
-
-    ### WRITE YOUR CODE HERE if you want to add other outputs, visualization, etc.
-
-
+# ──────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    # Definition of the arguments that can be given through the command line (terminal).
-    # If an argument is not given, it will take its default value as defined below.
     parser = argparse.ArgumentParser()
-    # Feel free to add more arguments here if you need!
 
-    # MS2 arguments
-    parser.add_argument('--data', default="dataset", type=str, help="path to your dataset")
-    parser.add_argument('--nn_type', default="mlp",
-                        help="which network architecture to use, it can be 'mlp' | 'transformer' | 'cnn'")
-    parser.add_argument('--nn_batch_size', type=int, default=64, help="batch size for NN training")
-    parser.add_argument('--device', type=str, default="cpu",
-                        help="Device to use for the training, it can be 'cpu' | 'cuda' | 'mps'")
+    parser.add_argument('--data', default="dataset", type=str)
+    parser.add_argument('--nn_type', default="mlp", choices=["mlp", "cnn"])
+    parser.add_argument('--nn_batch_size', type=int, default=64)
+    parser.add_argument('--device', default="cpu")
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--max_iters', type=int, default=20)
+    parser.add_argument('--test', action="store_true")
 
-
-    parser.add_argument('--lr', type=float, default=1e-5, help="learning rate for methods with learning rate")
-    parser.add_argument('--max_iters', type=int, default=100, help="max iters for methods which are iterative")
-    parser.add_argument('--test', action="store_true",
-                        help="train on whole training data and evaluate on the test data, otherwise use a validation set")
-
-
-    # "args" will keep in memory the arguments and their values,
-    # which can be accessed as "args.data", for example.
     args = parser.parse_args()
     main(args)
