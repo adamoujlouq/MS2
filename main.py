@@ -12,7 +12,7 @@ def main(args):
     # 1. Load data  ────────────────────────────────────────────────────────
     xtrain, xtest, ytrain, y_test = load_data()          # (N,28,28,3) uint8
     xtrain = xtrain.reshape(xtrain.shape[0], -1)         # (N,2352)
-    xtest  = xtest.reshape( xtest.shape[0],  -1)
+    xtest  = xtest.reshape(xtest.shape[0], -1)
 
     # 2-a. Validation split  ──────────────────────────────────────────────
     if not args.test:
