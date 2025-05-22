@@ -4,18 +4,31 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
+# Générateur d'architecture pyramidale
+def generate_layers(input_size, min_size=64, ratio=0.5):
+    layers = []
+    current = input_size
+    while current > min_size:
+        current = int(current * ratio)
+        layers.append(current)
+    return layers
+
+
 class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=[512, 256, 128], dropout_prob=0.2):
+    def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.2):
         """
-        Multi-Layer Perceptron avec plusieurs couches linéaires et dropout.
-        
+        MLP dynamique pour classification.
+
         Arguments :
-        - input_size (int) : taille de l'entrée (ex: 28x28x3 = 2352 pour image RGB 28x28)
-        - n_classes (int) : nombre de classes (doit rester en entiers si CrossEntropy)
-        - hidden_layers (list[int]) : tailles des couches cachées
-        - dropout_prob (float) : probabilité de dropout entre chaque couche
+        - input_size (int) : taille d'entrée (ex: 28x28x3 = 2352)
+        - n_classes (int) : nombre de classes
+        - hidden_layers (list[int] ou None) : si None, généré automatiquement
+        - dropout_prob (float) : probabilité de dropout
         """
         super().__init__()
+        if hidden_layers is None:
+            hidden_layers = generate_layers(input_size, min_size=64, ratio=0.5)
+
         self.layers = nn.ModuleList()
         self.dropout = nn.Dropout(dropout_prob)
 
@@ -31,12 +44,10 @@ class MLP(nn.Module):
             x = F.relu(layer(x))
             x = self.dropout(x)
         return self.output_layer(x)
-    
+
 
 class CNN(nn.Module):
-    """
-    A CNN which does classification.
-    """
+   
 
     def __init__(self, input_channels, n_classes):
         super().__init__()
@@ -92,6 +103,7 @@ class Trainer:
                 self.optimizer.step()
                 total_loss += loss.item()
             self.scheduler.step()
+            
 
     def fit(self, training_data, training_labels):
         train_dataset = TensorDataset(torch.from_numpy(training_data).float(),

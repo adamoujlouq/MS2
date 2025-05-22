@@ -109,7 +109,8 @@ def main(args):
             xtest = np.transpose(xtest.reshape(-1, 28, 28, 3), (0, 3, 1, 2))
             model = CNN(input_channels=3, n_classes=n_classes)
         else:
-            model = MLP(input_size=2352, n_classes=n_classes, hidden_layers=[256], dropout_prob=0.5)
+            model = MLP(input_size=2352, n_classes=n_classes)
+
 
         summary(model)
 
@@ -125,11 +126,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', default="dataset", type=str)
     parser.add_argument('--nn_type', default="mlp", choices=["mlp", "cnn"])
-    parser.add_argument('--nn_batch_size', type=int, default=128)
-    parser.add_argument('--device', default="cpu")
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--lr', type=float, default=5e-4)
+    parser.add_argument('--epochs', type=int, default=75)
+    parser.add_argument('--nn_batch_size', type=int, default=64)
+
     parser.add_argument('--test', action="store_true")
+    parser.add_argument('--device', default="cpu")
 
     args = parser.parse_args()
     main(args)
