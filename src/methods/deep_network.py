@@ -5,43 +5,32 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
 class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=[128]):
+    def __init__(self, input_size, n_classes, hidden_layers=[256], dropout_prob=0.2):
         """
-        input_size (int): nombre de features en entrée (ex: 2352)
-        n_classes (int): nombre de classes (ex: 7)
-        hidden_layers (list): liste des tailles de couches cachées
+        MLP avec uniquement des Linear layers et Dropout pour éviter l'overfit.
+
+        Arguments :
+        - input_size (int): taille du vecteur d'entrée (ex: 2352)
+        - n_classes (int): nombre de classes en sortie
+        - hidden_layers (list of int): liste des tailles de couches cachées
+        - dropout_prob (float): probabilité de Dropout entre les couches
         """
         super().__init__()
         self.layers = nn.ModuleList()
-        dims = hidden_layers
+        self.dropout = nn.Dropout(dropout_prob)
 
         inp = input_size
-        for dim in dims:
+        for dim in hidden_layers:
             self.layers.append(nn.Linear(inp, dim))
             inp = dim
-        
+
         self.output_layer = nn.Linear(inp, n_classes)
 
     def forward(self, x):
         for layer in self.layers:
             x = F.relu(layer(x))
+            x = self.dropout(x)
         return self.output_layer(x)
-        
-
-       
-
-    def forward(self, x):
-        """
-        Predict the class of a batch of samples with the model.
-
-        Arguments:
-            x (tensor): input batch of shape (N, D)
-        Returns:
-            preds (tensor): logits of predictions of shape (N, C)
-        """
-        x = F.relu(self.fc1(x))
-        preds = self.fc2(x)
-        return preds
     
 
 class CNN(nn.Module):
@@ -71,7 +60,7 @@ class CNN(nn.Module):
 
 class Trainer:
     """
-    Trainer class for the deep networks.
+    Trainer class for the deep networks using SGD.
     """
 
     def __init__(self, model, lr=1e-3, epochs=10, batch_size=64, device="cpu"):
@@ -82,7 +71,12 @@ class Trainer:
         self.device = device
 
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.SGD(
+            self.model.parameters(),
+            lr=self.lr,
+            momentum=0.9,
+            weight_decay=1e-4  # L2 regularization
+        )
 
     def train_all(self, dataloader):
         self.model.train()

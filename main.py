@@ -7,25 +7,9 @@ from torchinfo import summary
 
 from src.data import load_data
 from src.utils import normalize_fn
-from src.methods.deep_network import Trainer
+from src.methods.deep_network import MLP, Trainer
 from src.utils import accuracy_fn, macrof1_fn, get_n_classes
-import torch.nn as nn
-import torch.nn.functional as F
 
-class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=[128]):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        inp = input_size
-        for dim in hidden_layers:
-            self.layers.append(nn.Linear(inp, dim))
-            inp = dim
-        self.output_layer = nn.Linear(inp, n_classes)
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = F.relu(layer(x))
-        return self.output_layer(x)
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -35,95 +19,107 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def plot_heatmap(data, title, xticks, yticks):
-    plt.figure(figsize=(8, 6))
-    im = plt.imshow(data, cmap='viridis')
-    for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            plt.text(j, i, f"{data[i,j]:.1f}", ha='center', va='center', color='w', fontsize=8)
-    plt.xticks(np.arange(len(xticks)), xticks)
-    plt.yticks(np.arange(len(yticks)), yticks)
-    plt.xlabel("Hidden Dim")
-    plt.ylabel("Epochs")
-    plt.title(title)
-    plt.colorbar(im)
-    plt.tight_layout()
-    plt.show()
+
+def k_fold_indices(n_samples, k=5, seed=42):
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(n_samples)
+    fold_sizes = [n_samples // k] * k
+    for i in range(n_samples % k):
+        fold_sizes[i] += 1
+    current = 0
+    folds = []
+    for fold_size in fold_sizes:
+        start, stop = current, current + fold_size
+        val_idx = indices[start:stop]
+        train_idx = np.concatenate((indices[:start], indices[stop:]))
+        folds.append((train_idx, val_idx))
+        current = stop
+    return folds
+
 
 def main(args):
     set_seed(42)
 
+    # Load and reshape data
     xtrain, xtest, ytrain, y_test = load_data()
     xtrain = xtrain.reshape(xtrain.shape[0], -1).astype(np.float32) / 255.0
-    xtest = xtest.reshape(xtest.shape[0], -1).astype(np.float32) / 255.0
-
-    rng = np.random.default_rng(42)
-    idx = rng.permutation(len(xtrain))
-    split = int(0.9 * len(idx))
-    tr_idx, val_idx = idx[:split], idx[split:]
-    x_val, y_val = xtrain[val_idx], ytrain[val_idx]
-    xtrain, ytrain = xtrain[tr_idx], ytrain[tr_idx]
-
-    mu = xtrain.mean(axis=0, keepdims=True)
-    sigma = xtrain.std(axis=0, keepdims=True) + 1e-8
-    xtrain = normalize_fn(xtrain, mu, sigma)
-    x_val = normalize_fn(x_val, mu, sigma)
-
-    xtrain_img = xtrain.reshape(-1, 28, 28, 3)
-    x_val_img  = x_val.reshape(-1, 28, 28, 3)
-
+    xtest  = xtest.reshape(xtest.shape[0], -1).astype(np.float32) / 255.0
     n_classes = get_n_classes(ytrain)
 
-    if args.nn_type == "cnn":
-        from src.methods.deep_network import CNN
-        xtrain = np.transpose(xtrain_img, (0, 3, 1, 2))
-        x_val  = np.transpose(x_val_img, (0, 3, 1, 2))
-        model  = CNN(input_channels=3, n_classes=n_classes)
+    # 5-Fold Cross-validation
+    folds = k_fold_indices(len(xtrain), k=5)
+    accs, f1s = [], []
+
+    for i, (tr_idx, val_idx) in enumerate(folds):
+        print(f"\n--- Fold {i+1}/5 ---")
+        x_tr, y_tr = xtrain[tr_idx], ytrain[tr_idx]
+        x_val, y_val = xtrain[val_idx], ytrain[val_idx]
+
+        # Normalize
+        mu = x_tr.mean(axis=0, keepdims=True)
+        sigma = x_tr.std(axis=0, keepdims=True) + 1e-8
+        x_tr = normalize_fn(x_tr, mu, sigma)
+        x_val = normalize_fn(x_val, mu, sigma)
+
+        # Reshape if CNN, otherwise use MLP
+        if args.nn_type == "cnn":
+            from src.methods.deep_network import CNN
+            xtrain_img = x_tr.reshape(-1, 28, 28, 3)
+            xval_img = x_val.reshape(-1, 28, 28, 3)
+            x_tr = np.transpose(xtrain_img, (0, 3, 1, 2))
+            x_val = np.transpose(xval_img, (0, 3, 1, 2))
+            model = CNN(input_channels=3, n_classes=n_classes)
+        elif args.nn_type == "mlp":
+            model = MLP(input_size=2352, n_classes=n_classes, hidden_layers=[256], dropout_prob=0.5)
+        else:
+            raise ValueError("nn_type must be 'mlp' or 'cnn'")
+
         summary(model)
+
         trainer = Trainer(model, lr=args.lr, epochs=args.epochs, batch_size=args.nn_batch_size)
-        preds_train = trainer.fit(xtrain, ytrain)
-        preds_val   = trainer.predict(x_val)
-        acc_tr = accuracy_fn(preds_train, ytrain)
-        f1_tr  = macrof1_fn(preds_train, ytrain)
+        preds_train = trainer.fit(x_tr, y_tr)
+        preds_val = trainer.predict(x_val)
+
+        acc_tr = accuracy_fn(preds_train, y_tr)
+        f1_tr = macrof1_fn(preds_train, y_tr)
         acc_val = accuracy_fn(preds_val, y_val)
-        f1_val  = macrof1_fn(preds_val, y_val)
-        print(f"\nTrain : accuracy = {acc_tr:.3f}% | F1 = {f1_tr:.6f}")
-        tag = "Test" if args.test else "Validation"
-        print(f"{tag} : accuracy = {acc_val:.3f}% | F1 = {f1_val:.6f}")
-        if args.test:
-            np.save("dermamnist_test_preds.npy", preds_val)
-            print("Test predictions saved to dermamnist_test_preds.npy")
-        return
+        f1_val = macrof1_fn(preds_val, y_val)
 
-    # GRID SEARCH (MLP only)
-    epochs_list = [50, 100, 200, 300]
-    hidden_dims = [64, 128, 256, 512]
-    batch_size = args.nn_batch_size
-    lr = args.lr
+        accs.append(acc_val)
+        f1s.append(f1_val)
 
-    train_accs = np.zeros((len(epochs_list), len(hidden_dims)))
-    val_accs = np.zeros((len(epochs_list), len(hidden_dims)))
-    train_f1s = np.zeros((len(epochs_list), len(hidden_dims)))
-    val_f1s = np.zeros((len(epochs_list), len(hidden_dims)))
+        print(f"Train : accuracy = {acc_tr:.3f}% | F1 = {f1_tr:.6f}")
+        print(f"Validation : accuracy = {acc_val:.3f}% | F1 = {f1_val:.6f}")
 
-    for i, epoch in enumerate(epochs_list):
-        for j, hdim in enumerate(hidden_dims):
-            print(f"\n[INFO] Training MLP with hidden_layers=[{hdim}], epochs={epoch}")
-            model = MLP(input_size=2352, n_classes=n_classes, hidden_layers=[hdim])
-            trainer = Trainer(model, lr=lr, epochs=epoch, batch_size=batch_size)
+    # Best fold results
+    best_idx = int(np.argmax(accs))
+    print("\n==== Best fold result ====")
+    print(f"Best Accuracy : {accs[best_idx]:.3f}%")
+    print(f"Best F1-score : {f1s[best_idx]:.6f}")
+    print(f"Found at fold {best_idx+1}/5")
 
-            preds_train = trainer.fit(xtrain, ytrain)
-            preds_val = trainer.predict(x_val)
+    # Test mode
+    if args.test:
+        mu = xtrain.mean(axis=0, keepdims=True)
+        sigma = xtrain.std(axis=0, keepdims=True) + 1e-8
+        xtest = normalize_fn(xtest, mu, sigma)
 
-            train_accs[i, j] = accuracy_fn(preds_train, ytrain)
-            val_accs[i, j] = accuracy_fn(preds_val, y_val)
-            train_f1s[i, j] = macrof1_fn(preds_train, ytrain)
-            val_f1s[i, j] = macrof1_fn(preds_val, y_val)
+        if args.nn_type == "cnn":
+            from src.methods.deep_network import CNN
+            xtest = np.transpose(xtest.reshape(-1, 28, 28, 3), (0, 3, 1, 2))
+            model = CNN(input_channels=3, n_classes=n_classes)
+        else:
+            model = MLP(input_size=2352, n_classes=n_classes, hidden_layers=[256], dropout_prob=0.5)
 
-    plot_heatmap(train_accs, "Train Accuracy (%)", hidden_dims, epochs_list)
-    plot_heatmap(val_accs, "Validation Accuracy (%)", hidden_dims, epochs_list)
-    plot_heatmap(train_f1s, "Train F1-score (%)", hidden_dims, epochs_list)
-    plot_heatmap(val_f1s, "Validation F1-score (%)", hidden_dims, epochs_list)
+        summary(model)
+
+        trainer = Trainer(model, lr=args.lr, epochs=args.epochs, batch_size=args.nn_batch_size)
+        trainer.fit(xtrain, ytrain)
+        preds_val = trainer.predict(xtest)
+
+        np.save("dermamnist_test_preds.npy", preds_val)
+        print("Test predictions saved to dermamnist_test_preds.npy")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
