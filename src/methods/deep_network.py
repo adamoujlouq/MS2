@@ -5,15 +5,15 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
 class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=[256], dropout_prob=0.2):
+    def __init__(self, input_size, n_classes, hidden_layers=[512, 256, 128], dropout_prob=0.2):
         """
-        MLP avec uniquement des Linear layers et Dropout pour éviter l'overfit.
-
+        Multi-Layer Perceptron avec plusieurs couches linéaires et dropout.
+        
         Arguments :
-        - input_size (int): taille du vecteur d'entrée (ex: 2352)
-        - n_classes (int): nombre de classes en sortie
-        - hidden_layers (list of int): liste des tailles de couches cachées
-        - dropout_prob (float): probabilité de Dropout entre les couches
+        - input_size (int) : taille de l'entrée (ex: 28x28x3 = 2352 pour image RGB 28x28)
+        - n_classes (int) : nombre de classes (doit rester en entiers si CrossEntropy)
+        - hidden_layers (list[int]) : tailles des couches cachées
+        - dropout_prob (float) : probabilité de dropout entre chaque couche
         """
         super().__init__()
         self.layers = nn.ModuleList()
@@ -59,24 +59,25 @@ class CNN(nn.Module):
 
 
 class Trainer:
-    """
-    Trainer class for the deep networks using SGD.
-    """
-
-    def __init__(self, model, lr=1e-3, epochs=10, batch_size=64, device="cpu"):
+    def __init__(self, model, lr=1e-3, epochs=50, batch_size=64, device="cpu", class_weights=None):
         self.model = model.to(device)
         self.lr = lr
         self.epochs = epochs
         self.batch_size = batch_size
         self.device = device
 
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.SGD(
+        if class_weights is not None:
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        else:
+            self.criterion = nn.CrossEntropyLoss()
+
+        self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.lr,
-            momentum=0.9,
-            weight_decay=1e-4  # L2 regularization
+            weight_decay=1e-4
         )
+
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.5)
 
     def train_all(self, dataloader):
         self.model.train()
@@ -90,6 +91,7 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
+            self.scheduler.step()
 
     def fit(self, training_data, training_labels):
         train_dataset = TensorDataset(torch.from_numpy(training_data).float(),
