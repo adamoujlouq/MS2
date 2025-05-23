@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
-# Générateur d'architecture pyramidale
+
 def generate_layers(input_size, min_size=64, ratio=0.5):
     layers = []
     current = input_size
@@ -16,15 +16,6 @@ def generate_layers(input_size, min_size=64, ratio=0.5):
 
 class MLP(nn.Module):
     def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.2):
-        """
-        MLP dynamique pour classification.
-
-        Arguments :
-        - input_size (int) : taille d'entrée (ex: 28x28x3 = 2352)
-        - n_classes (int) : nombre de classes
-        - hidden_layers (list[int] ou None) : si None, généré automatiquement
-        - dropout_prob (float) : probabilité de dropout
-        """
         super().__init__()
         if hidden_layers is None:
             hidden_layers = generate_layers(input_size, min_size=64, ratio=0.5)
