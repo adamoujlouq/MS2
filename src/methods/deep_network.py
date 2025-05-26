@@ -5,37 +5,31 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
 
-def generate_layers(input_size, min_size=64, ratio=0.5):
-    layers = []
-    current = input_size
-    while current > min_size:
-        current = int(current * ratio)
-        layers.append(current)
-    return layers
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.2):
+    def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.5):
         super().__init__()
         if hidden_layers is None:
-            hidden_layers = generate_layers(input_size, min_size=64, ratio=0.5)
+            hidden_layers = [512, 256, 128, 64]  # Plus profond mais plus régulier
 
         self.layers = nn.ModuleList()
+        self.batchnorms = nn.ModuleList()
         self.dropout = nn.Dropout(dropout_prob)
 
         inp = input_size
         for dim in hidden_layers:
             self.layers.append(nn.Linear(inp, dim))
+            self.batchnorms.append(nn.BatchNorm1d(dim))
             inp = dim
 
         self.output_layer = nn.Linear(inp, n_classes)
 
     def forward(self, x):
-        for layer in self.layers:
-            x = F.relu(layer(x))
+        for layer, bn in zip(self.layers, self.batchnorms):
+            x = F.relu(bn(layer(x)))
             x = self.dropout(x)
         return self.output_layer(x)
-
 
 class CNN(nn.Module):
    
@@ -61,7 +55,7 @@ class CNN(nn.Module):
 
 
 class Trainer:
-    def __init__(self, model, lr=1e-3, epochs=50, batch_size=64, device="cpu", class_weights=None):
+    def __init__(self, model, lr=2e-4, epochs=100, batch_size=64, device="cpu", class_weights=None):
         self.model = model.to(device)
         self.lr = lr
         self.epochs = epochs
@@ -76,10 +70,10 @@ class Trainer:
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.lr,
-            weight_decay=1e-4
+            weight_decay=1e-3  # forte régularisation
         )
 
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.5)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=20, gamma=0.5)
 
     def train_all(self, dataloader):
         self.model.train()
@@ -94,7 +88,6 @@ class Trainer:
                 self.optimizer.step()
                 total_loss += loss.item()
             self.scheduler.step()
-            
 
     def fit(self, training_data, training_labels):
         train_dataset = TensorDataset(torch.from_numpy(training_data).float(),
