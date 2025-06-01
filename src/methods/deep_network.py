@@ -5,8 +5,6 @@ from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 
 
-
-
 class MLP(nn.Module):
     def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.5):
         super().__init__()
@@ -37,22 +35,37 @@ class CNN(nn.Module):
     def __init__(self, input_channels, n_classes):
         super().__init__()
         self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+
         self.pool1 = nn.MaxPool2d(2, 2)
+
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
         self.pool2 = nn.MaxPool2d(2, 2)
+
+        self.dropout = nn.Dropout(0.3)
+
         self.flattened_size = 64 * 7 * 7
+        
         self.fc1 = nn.Linear(self.flattened_size, 128)
         self.fc2 = nn.Linear(128, n_classes)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
+        x = F.relu(self.bn1(self.conv1(x)))
         x = self.pool1(x)
-        x = F.relu(self.conv2(x))
+        x = self.dropout(x)
+
+
+        x = F.relu(self.bn2(self.conv2(x)))
         x = self.pool2(x)
+        x = self.dropout(x)
+
+
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
-        return self.fc2(x)
+        x = self.dropout(x)
 
+        return self.fc2(x)
 
 class Trainer:
     def __init__(self, model, lr=2e-4, epochs=100, batch_size=64, device="cpu", class_weights=None):
