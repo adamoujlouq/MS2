@@ -123,6 +123,9 @@ def main(args):
 
         summary(model)
         trainer = Trainer(model, lr=args.lr, epochs=args.epochs, batch_size=args.nn_batch_size, device=args.device)
+        if args.nn_type == "cnn":
+            xtrain = xtrain.reshape(-1, 28, 28, 3).transpose(0, 3, 1, 2)
+
         trainer.fit(xtrain, ytrain)
         preds_val = trainer.predict(xtest)
 

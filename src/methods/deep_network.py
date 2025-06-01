@@ -6,7 +6,7 @@ import numpy as np
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.5):
+    def __init__(self, input_size, n_classes, hidden_layers=None, dropout_prob=0.3):
         super().__init__()
         if hidden_layers is None:
             hidden_layers = [512, 256, 128, 64]  # Plus profond mais plus régulier
